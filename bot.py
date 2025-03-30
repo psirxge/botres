@@ -36,9 +36,11 @@ client = AsyncOpenAI(api_key=get_env_var('OPENAI_API_KEY'))
 # Сохранение выбранной модели для каждого пользователя
 user_models = {}
 
+# Изменённая функция get_main_keyboard
 def get_main_keyboard():
     keyboard = [
-        [KeyboardButton(text="ChatGPT 4o-mini"), KeyboardButton(text="✏️ Изменить промпт")]
+        [KeyboardButton(text="ChatGPT 4o-mini"), KeyboardButton(text="✏️ Изменить промпт")],
+        [KeyboardButton(text="🔄 Вернуть исходный промпт")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
@@ -68,6 +70,14 @@ async def change_prompt(message: Message, state: FSMContext):
         reply_markup=types.ReplyKeyboardRemove()
     )
     await state.set_state(PromptStates.waiting_for_prompt)
+
+@dp.message(lambda message: message.text == "🔄 Вернуть исходный промпт")
+async def reset_prompt(message: Message, state: FSMContext):
+    user_prompts[message.from_user.id] = DEFAULT_PROMPT
+    await message.reply(
+        "✅ Промпт сброшен до исходного.",
+        reply_markup=get_main_keyboard()
+    )
 
 @dp.message(Command("cancel"))
 async def cancel_prompt(message: Message, state: FSMContext):
