@@ -9,9 +9,13 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 from dotenv import load_dotenv
-from openai import AsyncOpenAI
+from gigachat import GigaChat
 from config import MODELS, DEFAULT_PROMPT, user_prompts
 import httpx
+import requests
+
+
+response = requests.get('https://gigachat.devices.sberbank.ru/')
 
 logging.basicConfig(level=logging.INFO)
 
@@ -31,20 +35,23 @@ def get_env_var(key: str) -> str:
 storage = MemoryStorage()
 bot = Bot(token=get_env_var('TELEGRAM_BOT_TOKEN'))
 dp = Dispatcher(storage=storage)
-client = AsyncOpenAI(api_key=get_env_var('OPENAI_API_KEY'))
+
+credentials = get_env_var('GIGACHAT_API_PERS')
+giga = GigaChat(credentials=credentials)
 
 # Сохранение выбранной модели для каждого пользователя
 user_models = {}
 
 def get_main_keyboard():
     keyboard = [
-        [KeyboardButton(text="ChatGPT 4o-mini"), KeyboardButton(text="✏️ Изменить промпт")]
+        [KeyboardButton(text="GigaChat-2"), KeyboardButton(text="✏️ Изменить промпт")],
+        [KeyboardButton(text="🔄 Вернуть исходный промпт")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
 def get_model_keyboard():
     keyboard = [
-        [KeyboardButton(text="ChatGPT 4o-mini")]
+        [KeyboardButton(text="GigaChat-2")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
@@ -68,6 +75,14 @@ async def change_prompt(message: Message, state: FSMContext):
         reply_markup=types.ReplyKeyboardRemove()
     )
     await state.set_state(PromptStates.waiting_for_prompt)
+
+@dp.message(lambda message: message.text == "🔄 Вернуть исходный промпт")
+async def reset_prompt(message: Message, state: FSMContext):
+    user_prompts[message.from_user.id] = DEFAULT_PROMPT
+    await message.reply(
+        "✅ Промпт сброшен до исходного.",
+        reply_markup=get_main_keyboard()
+    )
 
 @dp.message(Command("cancel"))
 async def cancel_prompt(message: Message, state: FSMContext):
@@ -158,9 +173,9 @@ async def extract_text_from_pdf(file_path: str) -> str:
         print(f"Ошибка при извлечении текста: {e}")
         return ""
 
+# Теперь изменим функцию analyze_resume:
 async def analyze_resume(text: str, model: str, user_id: int) -> str:
     user_prompt = user_prompts.get(user_id, DEFAULT_PROMPT)
-    # Добавляем требование отсутствия форматирующих символов
     instruction = ("Пожалуйста, выдай ответ в простом тексте без использования markdown форматирования "
                    "(без #, *, -, и т.д.).")
     prompt = f"""{user_prompt}
@@ -203,20 +218,17 @@ async def analyze_resume(text: str, model: str, user_id: int) -> str:
 {text}
 """
     try:
-        if model in ["gpt-4o-mini"]:
-            response = await client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": instruction + "\n" + user_prompt},
-                    {"role": "user", "content": prompt}
-                ]
-            )
+        if model in ["GigaChat-2"]:
+            # Вызываем метод chat из GigaChat; так как метод синхронный, можно выполнить его в executor:
+            loop = asyncio.get_running_loop()
+            response = await loop.run_in_executor(None, giga.chat, prompt)
             return response.choices[0].message.content
         else:
             return "Неизвестная модель."
     except Exception as e:
         return f"Ошибка при анализе резюме: {e}"
 
+# Аналогично изменим функцию edit_resume:
 async def edit_resume(text: str, model: str, user_id: int) -> str:
     user_prompt = user_prompts.get(user_id, DEFAULT_PROMPT)
     instruction = ("Пожалуйста, отправь ответ в виде простого текста без markdown форматирования "
@@ -230,14 +242,9 @@ async def edit_resume(text: str, model: str, user_id: int) -> str:
 {text}
 """
     try:
-        if model in ["gpt-4o-mini"]:
-            response = await client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": instruction + "\n" + user_prompt},
-                    {"role": "user", "content": prompt}
-                ]
-            )
+        if model in ["GigaChat-2"]:
+            loop = asyncio.get_running_loop()
+            response = await loop.run_in_executor(None, giga.chat)
             return response.choices[0].message.content
         else:
             return "Неизвестная модель."

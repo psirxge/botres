@@ -1,10 +1,10 @@
 from enum import Enum
 
 class Model(Enum):
-    CHATGPT4o = "gpt-4o-mini"
+    CHATGPT4o = "GigaChat-2"
 
 MODELS = {
-    "ChatGPT 4o-mini": Model.CHATGPT4o
+    "GigaChat-2": Model.CHATGPT4o
 }
 
 DEFAULT_PROMPT = """Ты – эксперт по HR, карьерному консультированию и составлению эффективных резюме.
