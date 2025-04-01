@@ -45,11 +45,7 @@ user_models = {}
 # Изменённая функция get_main_keyboard
 def get_main_keyboard():
     keyboard = [
-<<<<<<< HEAD
         [KeyboardButton(text="GigaChat-2"), KeyboardButton(text="✏️ Изменить промпт")],
-=======
-        [KeyboardButton(text="ChatGPT 4o-mini"), KeyboardButton(text="✏️ Изменить промпт")],
->>>>>>> 92f2144c50dd3c9990f53561c0f32d684cb4e14f
         [KeyboardButton(text="🔄 Вернуть исходный промпт")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
