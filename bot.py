@@ -11,6 +11,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from dotenv import load_dotenv
 from gigachat import GigaChat
 from config import MODELS, DEFAULT_PROMPT, user_prompts
+import re
 
 logging.basicConfig(level=logging.INFO)
 
@@ -98,28 +99,33 @@ async def process_prompt_change(message: Message, state: FSMContext):
         reply_markup=get_main_keyboard()
     )
 
+# Функция для удаления Markdown-символов
+def remove_markdown(text: str) -> str:
+    markdown_pattern = r"([*_~`\[\]()>#-])"
+    return re.sub(markdown_pattern, "", text)
+
 @dp.message()
 async def handle_message(message: Message, state: FSMContext):
     # Если пользователь выбирает модель (сообщение с текстом)
     if message.text in MODELS:
-        # Сохраняем значение модели, а не отображаемый текст
         user_models[message.from_user.id] = MODELS[message.text].value
         await message.reply(
             "✅ Модель выбрана! Теперь отправьте ваше резюме (PDF):",
-            reply_markup=get_main_keyboard()
+            reply_markup=get_main_keyboard(),
+            parse_mode=None
         )
         return
 
-    # Если это PDF-файл
     if message.document and message.document.mime_type == 'application/pdf':
         if message.from_user.id not in user_models:
             await message.reply(
                 "❗ Сначала выберите модель для анализа:",
-                reply_markup=get_model_keyboard()
+                reply_markup=get_model_keyboard(),
+                parse_mode=None
             )
             return
 
-        await message.reply("📄 Анализирую ваше резюме... Пожалуйста, подождите.")
+        await message.reply("📄 Анализирую ваше резюме... Пожалуйста, подождите.", parse_mode=None)
         
         file_id = message.document.file_id
         file = await bot.get_file(file_id)
@@ -129,34 +135,37 @@ async def handle_message(message: Message, state: FSMContext):
         text = await extract_text_from_pdf(local_file_path)
         
         if text:
-            # Используем выбранную модель напрямую
             selected_model = user_models[message.from_user.id]
             analysis = await analyze_resume(text, selected_model, message.from_user.id)
-            
-            await message.reply("📊 Результаты анализа:")
+            analysis = remove_markdown(analysis)  # Убираем markdown-символы
+
+            await message.reply("📊 Результаты анализа:", parse_mode=None)
             max_length = 4096
             for i in range(0, len(analysis), max_length):
                 chunk = analysis[i:i+max_length]
                 await message.reply(chunk, parse_mode=None)
-            
-            # Получаем отредактированное резюме
+
             edited_resume = await edit_resume(text, selected_model, message.from_user.id)
-            await message.reply("📝 Отредактированное резюме:")
+            edited_resume = remove_markdown(edited_resume)  # Убираем markdown-символы
+
+            await message.reply("📝 Отредактированное резюме:", parse_mode=None)
             for i in range(0, len(edited_resume), max_length):
                 chunk = edited_resume[i:i+max_length]
                 await message.reply(chunk, parse_mode=None)
-            
+
             await message.reply(
                 "✨ Для нового анализа выберите модель:",
-                reply_markup=get_model_keyboard()
+                reply_markup=get_model_keyboard(),
+                parse_mode=None
             )
         else:
             await message.reply(
-                "❌ Не удалось извлечь текст из PDF. Убедитесь, что PDF содержит текстовый слой."
+                "❌ Не удалось извлечь текст из PDF. Убедитесь, что PDF содержит текстовый слой.",
+                parse_mode=None
             )
         os.remove(local_file_path)
     elif message.document:
-        await message.reply("📎 Пожалуйста, отправьте резюме в формате PDF.")
+        await message.reply("📎 Пожалуйста, отправьте резюме в формате PDF.", parse_mode=None)
 
 async def extract_text_from_pdf(file_path: str) -> str:
     try:
