@@ -10,8 +10,7 @@ requirements = [
     "python-dotenv==1.0.0",
     "aiogram==3.4.1",
     "PyMuPDF==1.23.26",
-    "openai==1.12.0",
-    "httpx==0.26.0"
+    "openai==1.12.0"
 ]
 
 def install_requirements() -> None:
@@ -32,6 +31,7 @@ def create_env_file() -> None:
         with open(env_path, "w", encoding="utf-8") as f:
             f.write('TELEGRAM_BOT_TOKEN="your_telegram_bot_token"\n')
             f.write('OPENAI_API_KEY="your_openai_api_key"\n')
+            f.write('GIGACHAT_API_PERS="your_gigachat_api_pers"\n')
         print("Создан файл .env. Обновите его значениями API ключей.")
 
 def main():

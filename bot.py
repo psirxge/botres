@@ -2,20 +2,15 @@ import os
 import fitz  # PyMuPDF
 import asyncio
 import logging
-from aiogram import Bot, Dispatcher, types, F
+from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 from dotenv import load_dotenv
 from gigachat import GigaChat
 from config import MODELS, DEFAULT_PROMPT, user_prompts
-import httpx
-import requests
-
-
-response = requests.get('https://gigachat.devices.sberbank.ru/')
 
 logging.basicConfig(level=logging.INFO)
 
@@ -245,7 +240,7 @@ async def edit_resume(text: str, model: str, user_id: int) -> str:
     try:
         if model in ["GigaChat-2"]:
             loop = asyncio.get_running_loop()
-            response = await loop.run_in_executor(None, giga.chat)
+            response = await loop.run_in_executor(None, giga.chat, prompt)
             return response.choices[0].message.content
         else:
             return "Неизвестная модель."
