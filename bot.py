@@ -52,14 +52,92 @@ def get_model_keyboard():
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
+async def check_subscription(user_id: int) -> bool:
+    try:
+        member = await bot.get_chat_member(get_env_var('CHANNEL_USERNAME'), user_id)
+        return member.status in ['creator', 'administrator', 'member']
+    except Exception as e:
+        print(f"Ошибка при проверке подписки: {e}")
+        return False
+
+# Middleware для проверки подписки
+async def subscription_middleware(handler, event, data):
+    user = data["event_from_user"]
+    
+    # Пропускаем команду /start и callback-запросы проверки подписки
+    if (isinstance(event, Message) and event.text == '/start') or \
+       (isinstance(event, types.CallbackQuery) and event.data == "check_subscription"):
+        return await handler(event, data)
+    
+    if not await check_subscription(user.id):
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="Подписаться", url=get_env_var('CHANNEL_LINK'))],
+            [types.InlineKeyboardButton(text="Проверить подписку", callback_data="check_subscription")]
+        ])
+        
+        if isinstance(event, types.CallbackQuery):
+            await event.answer(
+                "Для использования бота необходимо подписаться на канал.",
+                show_alert=True
+            )
+            await event.message.reply(
+                "Для использования бота необходимо подписаться на наш канал.",
+                reply_markup=keyboard,
+                parse_mode=None
+            )
+        else:
+            await event.answer(
+                "Для использования бота необходимо подписаться на наш канал.",
+                reply_markup=keyboard,
+                parse_mode=None
+            )
+        return
+    
+    return await handler(event, data)
+
+# Регистрируем middleware
+dp.message.middleware(subscription_middleware)
+dp.callback_query.middleware(subscription_middleware)
+
 @dp.message(Command('start'))
 async def send_welcome(message: Message):
+    if not await check_subscription(message.from_user.id):
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="Подписаться", url=get_env_var('CHANNEL_LINK'))],
+            [types.InlineKeyboardButton(text="Проверить подписку", callback_data="check_subscription")]
+        ])
+        await message.reply(
+            "Для использования бота подпишитесь на наш канал.",
+            reply_markup=keyboard,
+            parse_mode=None
+        )
+        return
+
     await message.reply(
-        "👋 Добро пожаловать в Resume Analyzer Bot!\n\n"
-        "Я помогу проанализировать ваше резюме и предложу рекомендации по улучшению.\n"
-        "Сначала выберите модель для анализа или настройте промпт:",
-        reply_markup=get_main_keyboard()
+        f"👋 Добро пожаловать в {get_env_var('BOT_NAME')}!\n\n"
+        "Вы подписаны на наш канал! Теперь выберите модель для анализа или настройте промпт:",
+        reply_markup=get_main_keyboard(),
+        parse_mode=None
     )
+
+def check_subscription_filter(callback_query: types.CallbackQuery) -> bool:
+    return callback_query.data == "check_subscription"
+
+@dp.callback_query(lambda c: c.data == "check_subscription")
+async def process_check_subscription(callback_query: types.CallbackQuery):
+    if await check_subscription(callback_query.from_user.id):
+        await callback_query.answer("✅ Подписка подтверждена!", show_alert=True)
+        await bot.send_message(
+            callback_query.from_user.id,
+            "Спасибо за подписку! Теперь вы можете пользоваться ботом.",
+            reply_markup=get_main_keyboard(),
+            parse_mode=None
+        )
+    else:
+        await callback_query.answer(
+            "❌ Вы не подписаны. Подпишитесь на канал и повторите проверку.",
+            show_alert=True
+        )
 
 @dp.message(lambda message: message.text == "✏️ Изменить промпт")
 async def change_prompt(message: Message, state: FSMContext):
@@ -101,7 +179,7 @@ async def process_prompt_change(message: Message, state: FSMContext):
 
 # Функция для удаления Markdown-символов
 def remove_markdown(text: str) -> str:
-    markdown_pattern = r"([*_~`\[\]()>#-])"
+    markdown_pattern = r"([*_~`\[\]()>#])"
     return re.sub(markdown_pattern, "", text)
 
 @dp.message()
