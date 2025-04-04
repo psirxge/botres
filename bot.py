@@ -42,7 +42,8 @@ user_models = {}
 def get_main_keyboard():
     keyboard = [
         [KeyboardButton(text="GigaChat-2"), KeyboardButton(text="✏️ Изменить промпт")],
-        [KeyboardButton(text="🔄 Вернуть исходный промпт")]
+        [KeyboardButton(text="🔄 Вернуть исходный промпт")],
+        [KeyboardButton(text="📖 Инструкция")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
 
@@ -177,10 +178,94 @@ async def process_prompt_change(message: Message, state: FSMContext):
         reply_markup=get_main_keyboard()
     )
 
-# Функция для удаления Markdown-символов
+# Функция для удаления Markdown-символов, всех кроме - т.к. присутствую такие слова как что-то и т.п.
 def remove_markdown(text: str) -> str:
     markdown_pattern = r"([*_~`\[\]()>#])"
     return re.sub(markdown_pattern, "", text)
+
+@dp.message(lambda message: message.text == "📖 Инструкция")
+async def show_instructions(message: Message):
+    # Создаем inline клавиатуру для выбора платформы
+    keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+        [types.InlineKeyboardButton(text="💻 Windows/Mac", callback_data="instruction_pc")],
+        [types.InlineKeyboardButton(text="📱 iOS", callback_data="instruction_ios")],
+        [types.InlineKeyboardButton(text="📱 Android", callback_data="instruction_android")]
+    ])
+    
+    await message.reply(
+        "Выберите вашу платформу для получения инструкции:",
+        reply_markup=keyboard,
+        parse_mode=None
+    )
+
+@dp.callback_query(lambda c: c.data.startswith("instruction_"))
+async def process_instruction(callback_query: types.CallbackQuery):
+    platform = callback_query.data.split("_")[1]
+    
+    instructions = {
+        "pc": {
+            "text": ("Как сохранить резюме в PDF на компьютере:\n\n"
+                    "1. Откройте документ в Word/Google Docs\n"
+                    "2. Нажмите «Файл» → «Сохранить как» или «Экспорт»\n"
+                    "3. Выберите формат PDF\n"
+                    "4. Нажмите «Сохранить»\n"
+                    "5. Отправьте файл боту"),
+            "images": ["pc_step1.png", "pc_step2.png"]
+        },
+        "ios": {
+            "text": ("Как сохранить резюме в PDF на iOS:\n\n"
+                    "1. Откройте документ\n"
+                    "2. Нажмите кнопку «Поделиться»\n"
+                    "3. Выберите «Сохранить в PDF»\n"
+                    "4. Отправьте файл боту"),
+            "images": ["ios_step1.png", "ios_step2.png"]
+        },
+        "android": {
+            "text": ("Как сохранить резюме в PDF на Android:\n\n"
+                    "1. Откройте документ\n"
+                    "2. Нажмите на три точки ⋮\n"
+                    "3. Выберите «Сохранить как PDF»\n"
+                    "4. Отправьте файл боту"),
+            "images": ["android_step1.png", "android_step2.png"]
+        }
+    }
+    
+    if platform in instructions:
+        # Отправляем текст инструкции
+        await bot.send_message(
+            callback_query.from_user.id,
+            instructions[platform]["text"],
+            parse_mode=None
+        )
+        
+        # Отправляем изображения
+        media_group = []
+        for image in instructions[platform]["images"]:
+            try:
+                file_path = os.path.join("instructions", image)
+                if os.path.exists(file_path):
+                    # Создаем FSInputFile для каждого изображения
+                    file = types.FSInputFile(file_path)
+                    media_group.append(types.InputMediaPhoto(media=file))
+            except Exception as e:
+                print(f"Ошибка при подготовке изображения {image}: {e}")
+                continue
+        
+        if media_group:
+            try:
+                await bot.send_media_group(
+                    chat_id=callback_query.from_user.id,
+                    media=media_group
+                )
+            except Exception as e:
+                print(f"Ошибка при отправке изображений: {e}")
+                await bot.send_message(
+                    callback_query.from_user.id,
+                    "Извините, не удалось загрузить изображения инструкции.",
+                    parse_mode=None
+                )
+    
+    await callback_query.answer()
 
 @dp.message()
 async def handle_message(message: Message, state: FSMContext):
