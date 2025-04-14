@@ -38,11 +38,14 @@ giga = GigaChat(credentials=credentials)
 # Сохранение выбранной модели для каждого пользователя
 user_models = {}
 
+# Глобальный словарь для хранения количества анализов пользователя
+analysis_count = {}
+
 # Изменённая функция get_main_keyboard
 def get_main_keyboard():
     keyboard = [
-        [KeyboardButton(text="GigaChat-2"), KeyboardButton(text="✏️ Изменить промпт")],
-        [KeyboardButton(text="🔄 Вернуть исходный промпт")],
+ #       [KeyboardButton(text="GigaChat-2"), KeyboardButton(text="✏️ Изменить промпт")],
+ #       [KeyboardButton(text="🔄 Вернуть исходный промпт")],
         [KeyboardButton(text="📖 Инструкция")]
     ]
     return ReplyKeyboardMarkup(keyboard=keyboard, resize_keyboard=True)
@@ -61,15 +64,21 @@ async def check_subscription(user_id: int) -> bool:
         print(f"Ошибка при проверке подписки: {e}")
         return False
 
-# Middleware для проверки подписки
+# Изменяем middleware для проверки подписки
 async def subscription_middleware(handler, event, data):
     user = data["event_from_user"]
     
-    # Пропускаем команду /start и callback-запросы проверки подписки
+    # Всегда пропускаем команду /start и проверку подписки
     if (isinstance(event, Message) and event.text == '/start') or \
-       (isinstance(event, types.CallbackQuery) and event.data == "check_subscription"):
+       (isinstance(event, types.CallbackQuery) and event.data == "check_subscription") or \
+       (isinstance(event, Message) and event.text == "📖 Инструкция"):
         return await handler(event, data)
     
+    # Если это первое использование - пропускаем проверку подписки
+    if analysis_count.get(user.id, 0) == 0:
+        return await handler(event, data)
+    
+    # Для всех последующих запросов проверяем подписку
     if not await check_subscription(user.id):
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
             [types.InlineKeyboardButton(text="Подписаться", url=get_env_var('CHANNEL_LINK'))],
@@ -78,17 +87,17 @@ async def subscription_middleware(handler, event, data):
         
         if isinstance(event, types.CallbackQuery):
             await event.answer(
-                "Для использования бота необходимо подписаться на канал.",
+                "Для дальнейшего использования бота необходимо подписаться на канал.",
                 show_alert=True
             )
             await event.message.reply(
-                "Для использования бота необходимо подписаться на наш канал.",
+                "Вы использовали бесплатный анализ. Для продолжения работы подпишитесь на наш канал.",
                 reply_markup=keyboard,
                 parse_mode=None
             )
         else:
             await event.answer(
-                "Для использования бота необходимо подписаться на наш канал.",
+                "Вы использовали бесплатный анализ. Для продолжения работы подпишитесь на наш канал.",
                 reply_markup=keyboard,
                 parse_mode=None
             )
@@ -100,23 +109,14 @@ async def subscription_middleware(handler, event, data):
 dp.message.middleware(subscription_middleware)
 dp.callback_query.middleware(subscription_middleware)
 
+# Изменяем обработчик команды /start
 @dp.message(Command('start'))
 async def send_welcome(message: Message):
-    if not await check_subscription(message.from_user.id):
-        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="Подписаться", url=get_env_var('CHANNEL_LINK'))],
-            [types.InlineKeyboardButton(text="Проверить подписку", callback_data="check_subscription")]
-        ])
-        await message.reply(
-            "Для использования бота подпишитесь на наш канал.",
-            reply_markup=keyboard,
-            parse_mode=None
-        )
-        return
-
     await message.reply(
         f"👋 Добро пожаловать в {get_env_var('BOT_NAME')}!\n\n"
-        "Вы подписаны на наш канал! Теперь выберите модель для анализа или настройте промпт:",
+        "У вас есть возможность одного бесплатного анализа резюме.\n"
+        "Для дальнейшего использования потребуется подписка на канал.\n\n"
+        "Отправьте ваше резюме в формате PDF для анализа.",
         reply_markup=get_main_keyboard(),
         parse_mode=None
     )
@@ -124,13 +124,15 @@ async def send_welcome(message: Message):
 def check_subscription_filter(callback_query: types.CallbackQuery) -> bool:
     return callback_query.data == "check_subscription"
 
+# Обновляем обработчик проверки подписки
 @dp.callback_query(lambda c: c.data == "check_subscription")
 async def process_check_subscription(callback_query: types.CallbackQuery):
     if await check_subscription(callback_query.from_user.id):
         await callback_query.answer("✅ Подписка подтверждена!", show_alert=True)
         await bot.send_message(
             callback_query.from_user.id,
-            "Спасибо за подписку! Теперь вы можете пользоваться ботом.",
+            "Спасибо за подписку! Теперь вы можете пользоваться ботом без ограничений.\n"
+            "Отправьте ваше резюме в формате PDF для анализа.",
             reply_markup=get_main_keyboard(),
             parse_mode=None
         )
@@ -269,25 +271,16 @@ async def process_instruction(callback_query: types.CallbackQuery):
 
 @dp.message()
 async def handle_message(message: Message, state: FSMContext):
-    # Если пользователь выбирает модель (сообщение с текстом)
-    if message.text in MODELS:
-        user_models[message.from_user.id] = MODELS[message.text].value
-        await message.reply(
-            "✅ Модель выбрана! Теперь отправьте ваше резюме (PDF):",
-            reply_markup=get_main_keyboard(),
-            parse_mode=None
-        )
-        return
+    # Закомментировали проверку на выбор модели:
+    # if message.text in MODELS:
+    #     await message.reply(
+    #         "✅ Модель выбрана! Теперь отправьте ваше резюме (PDF):",
+    #         reply_markup=get_main_keyboard(),
+    #         parse_mode=None
+    #     )
+    #     return
 
     if message.document and message.document.mime_type == 'application/pdf':
-        if message.from_user.id not in user_models:
-            await message.reply(
-                "❗ Сначала выберите модель для анализа:",
-                reply_markup=get_model_keyboard(),
-                parse_mode=None
-            )
-            return
-
         await message.reply("📄 Анализирую ваше резюме... Пожалуйста, подождите.", parse_mode=None)
         
         file_id = message.document.file_id
@@ -298,9 +291,10 @@ async def handle_message(message: Message, state: FSMContext):
         text = await extract_text_from_pdf(local_file_path)
         
         if text:
-            selected_model = user_models[message.from_user.id]
+            # Используем модель по умолчанию, например "GigaChat-2"
+            selected_model = "GigaChat-2"
             analysis = await analyze_resume(text, selected_model, message.from_user.id)
-            analysis = remove_markdown(analysis)  # Убираем markdown-символы
+            analysis = remove_markdown(analysis)
 
             await message.reply("📊 Результаты анализа:", parse_mode=None)
             max_length = 4096
@@ -309,18 +303,14 @@ async def handle_message(message: Message, state: FSMContext):
                 await message.reply(chunk, parse_mode=None)
 
             edited_resume = await edit_resume(text, selected_model, message.from_user.id)
-            edited_resume = remove_markdown(edited_resume)  # Убираем markdown-символы
+            edited_resume = remove_markdown(edited_resume)
 
             await message.reply("📝 Отредактированное резюме:", parse_mode=None)
             for i in range(0, len(edited_resume), max_length):
                 chunk = edited_resume[i:i+max_length]
                 await message.reply(chunk, parse_mode=None)
-
-            await message.reply(
-                "✨ Для нового анализа выберите модель:",
-                reply_markup=get_model_keyboard(),
-                parse_mode=None
-            )
+            
+            analysis_count[message.from_user.id] = analysis_count.get(message.from_user.id, 0) + 1
         else:
             await message.reply(
                 "❌ Не удалось извлечь текст из PDF. Убедитесь, что PDF содержит текстовый слой.",
@@ -350,37 +340,7 @@ async def analyze_resume(text: str, model: str, user_id: int) -> str:
 
 {instruction}
 
-Проанализируй резюме по следующим критериям:
-
-1. Содержание и навыки:
-   - Релевантность опыта
-   - Ключевые компетенции
-   - Достижения и результаты
-
-2. Структура и оформление:
-   - Читаемость
-   - Организация информации
-   - Форматирование
-
-3. Оптимизация под ATS:
-   - Ключевые слова
-   - Совместимость с системами
-   - Технические аспекты
-
-4. Общее впечатление:
-   - Профессиональный имидж
-   - Уникальное торговое предложение
-   - Конкурентные преимущества
-
-Проанализируй данное резюме по следующим пунктам:
-1. Общие впечатления: Насколько резюме выглядит профессионально и понятно? Есть ли ошибки или странные формулировки?
-2. Структура: Соответствует ли резюме стандартам? Все ли ключевые блоки (Опыт, Навыки, Образование) присутствуют?
-3. Ключевые слова: Достаточно ли в резюме ключевых слов для прохождения ATS? Какие слова стоит добавить?
-4. Оформление и стиль: Как можно улучшить читабельность (краткость, четкость, логика)?
-5. Сравнение с успешными резюме: Какие элементы делают резюме слабым по сравнению с лучшими примерами?
-6. Рекомендации по улучшению: Дай конкретные правки, переформулировки и дополнительные пункты, которые стоит добавить.
-
-Важно: Отвечай кратко, но по существу, с конкретными примерами и улучшенными формулировками. Если находишь ошибки или слабые места — предложи исправления сразу с примерами.
+{get_env_var('ANALYZE_INSTRUCTIONS')}
 
 Текст резюме:
 {text}
@@ -405,8 +365,9 @@ async def edit_resume(text: str, model: str, user_id: int) -> str:
 
 {instruction}
 
-Отредактируй следующее резюме так, чтобы оно получило более профессиональный вид, улучшилась структура, стиль и читабельность. Сделай текст более привлекательным для работодателей:
+{get_env_var('EDIT_INSTRUCTIONS')}
 
+Текст резюме:
 {text}
 """
     try:
