@@ -41,7 +41,7 @@ def main():
     
     print("Устанавливаю необходимые библиотеки...")
     install_requirements()
-    create_env_file()
+    # create_env_file()
     print("\nSetup завершён успешно!")
     print("Запустите бота командой: python bot.py")
 
