@@ -112,6 +112,18 @@ dp.callback_query.middleware(subscription_middleware)
 # Изменяем обработчик команды /start
 @dp.message(Command('start'))
 async def send_welcome(message: Message):
+    if not await check_subscription(message.from_user.id):
+        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
+            [types.InlineKeyboardButton(text="Подписаться", url=get_env_var('CHANNEL_LINK'))],
+            [types.InlineKeyboardButton(text="Проверить подписку", callback_data="check_subscription")]
+        ])
+        await message.reply(
+            "Для использования бота подпишитесь на наш канал.",
+            reply_markup=keyboard,
+            parse_mode=None
+        )
+        return
+
     await message.reply(
         f"👋 Добро пожаловать в {get_env_var('BOT_NAME')}!\n\n"
         "У вас есть возможность одного бесплатного анализа резюме.\n"
@@ -302,14 +314,15 @@ async def handle_message(message: Message, state: FSMContext):
                 chunk = analysis[i:i+max_length]
                 await message.reply(chunk, parse_mode=None)
 
-            edited_resume = await edit_resume(text, selected_model, message.from_user.id)
-            edited_resume = remove_markdown(edited_resume)
+            #edited_resume = await edit_resume(text, selected_model, message.from_user.id)
+            #edited_resume = remove_markdown(edited_resume)
 
-            await message.reply("📝 Отредактированное резюме:", parse_mode=None)
-            for i in range(0, len(edited_resume), max_length):
-                chunk = edited_resume[i:i+max_length]
-                await message.reply(chunk, parse_mode=None)
-            
+            #await message.reply("📝 Отредактированное резюме:", parse_mode=None)
+            #for i in range(0, len(edited_resume), max_length):
+                #chunk = edited_resume[i:i+max_length]
+                #await message.reply(chunk, parse_mode=None)
+
+            await message.reply("Для повторного анализа отправьте файл снова.", parse_mode=None)
             analysis_count[message.from_user.id] = analysis_count.get(message.from_user.id, 0) + 1
         else:
             await message.reply(
@@ -342,7 +355,6 @@ async def analyze_resume(text: str, model: str, user_id: int) -> str:
 
 {get_env_var('ANALYZE_INSTRUCTIONS')}
 
-Текст резюме:
 {text}
 """
     try:
@@ -357,7 +369,7 @@ async def analyze_resume(text: str, model: str, user_id: int) -> str:
         return f"Ошибка при анализе резюме: {e}"
 
 # Аналогично изменим функцию edit_resume:
-async def edit_resume(text: str, model: str, user_id: int) -> str:
+#async def edit_resume(text: str, model: str, user_id: int) -> str:
     user_prompt = user_prompts.get(user_id, DEFAULT_PROMPT)
     instruction = ("Пожалуйста, отправь ответ в виде простого текста без markdown форматирования "
                    "(без #, *, -, и т.д.).")
