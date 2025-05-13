@@ -9,9 +9,10 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 from dotenv import load_dotenv
-from gigachat import GigaChat
 from config import MODELS, DEFAULT_PROMPT, user_prompts
 import re
+from openai import ChatCompletion  # Импортируем OpenAI SDK
+import openai
 
 logging.basicConfig(level=logging.INFO)
 
@@ -27,13 +28,13 @@ def get_env_var(key: str) -> str:
         return value.strip('"')
     return ""
 
+# Устанавливаем API-ключ OpenAI
+openai.api_key = get_env_var('OPENAI_API_KEY')
+
 # Инициализировать бота с помощью хранилища состояний
 storage = MemoryStorage()
 bot = Bot(token=get_env_var('TELEGRAM_BOT_TOKEN'))
 dp = Dispatcher(storage=storage)
-
-credentials = get_env_var('GIGACHAT_API_PERS')
-giga = GigaChat(credentials=credentials)
 
 # Сохранение выбранной модели для каждого пользователя
 user_models = {}
@@ -67,24 +68,24 @@ async def check_subscription(user_id: int) -> bool:
 # Изменяем middleware для проверки подписки
 async def subscription_middleware(handler, event, data):
     user = data["event_from_user"]
-    
+
     # Всегда пропускаем команду /start и проверку подписки
     if (isinstance(event, Message) and event.text == '/start') or \
        (isinstance(event, types.CallbackQuery) and event.data == "check_subscription") or \
        (isinstance(event, Message) and event.text == "📖 Инструкция"):
         return await handler(event, data)
-    
+
     # Если это первое использование - пропускаем проверку подписки
     if analysis_count.get(user.id, 0) == 0:
         return await handler(event, data)
-    
+
     # Для всех последующих запросов проверяем подписку
     if not await check_subscription(user.id):
         keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
             [types.InlineKeyboardButton(text="Подписаться", url=get_env_var('CHANNEL_LINK'))],
             [types.InlineKeyboardButton(text="Проверить подписку", callback_data="check_subscription")]
         ])
-        
+
         if isinstance(event, types.CallbackQuery):
             await event.answer(
                 "Для дальнейшего использования бота необходимо подписаться на канал.",
@@ -102,7 +103,7 @@ async def subscription_middleware(handler, event, data):
                 parse_mode=None
             )
         return
-    
+
     return await handler(event, data)
 
 # Регистрируем middleware
@@ -112,18 +113,6 @@ dp.callback_query.middleware(subscription_middleware)
 # Изменяем обработчик команды /start
 @dp.message(Command('start'))
 async def send_welcome(message: Message):
-    if not await check_subscription(message.from_user.id):
-        keyboard = types.InlineKeyboardMarkup(inline_keyboard=[
-            [types.InlineKeyboardButton(text="Подписаться", url=get_env_var('CHANNEL_LINK'))],
-            [types.InlineKeyboardButton(text="Проверить подписку", callback_data="check_subscription")]
-        ])
-        await message.reply(
-            "Для использования бота подпишитесь на наш канал.",
-            reply_markup=keyboard,
-            parse_mode=None
-        )
-        return
-
     await message.reply(
         f"👋 Добро пожаловать в {get_env_var('BOT_NAME')}!\n\n"
         "У вас есть возможность одного бесплатного анализа резюме.\n"
@@ -205,7 +194,7 @@ async def show_instructions(message: Message):
         [types.InlineKeyboardButton(text="📱 iOS", callback_data="instruction_ios")],
         [types.InlineKeyboardButton(text="📱 Android", callback_data="instruction_android")]
     ])
-    
+
     await message.reply(
         "Выберите вашу платформу для получения инструкции:",
         reply_markup=keyboard,
@@ -215,7 +204,7 @@ async def show_instructions(message: Message):
 @dp.callback_query(lambda c: c.data.startswith("instruction_"))
 async def process_instruction(callback_query: types.CallbackQuery):
     platform = callback_query.data.split("_")[1]
-    
+
     instructions = {
         "pc": {
             "text": ("Как сохранить резюме в PDF на компьютере:\n\n"
@@ -243,7 +232,7 @@ async def process_instruction(callback_query: types.CallbackQuery):
             "images": ["android_step1.png", "android_step2.png"]
         }
     }
-    
+
     if platform in instructions:
         # Отправляем текст инструкции
         await bot.send_message(
@@ -251,7 +240,7 @@ async def process_instruction(callback_query: types.CallbackQuery):
             instructions[platform]["text"],
             parse_mode=None
         )
-        
+
         # Отправляем изображения
         media_group = []
         for image in instructions[platform]["images"]:
@@ -264,7 +253,7 @@ async def process_instruction(callback_query: types.CallbackQuery):
             except Exception as e:
                 print(f"Ошибка при подготовке изображения {image}: {e}")
                 continue
-        
+
         if media_group:
             try:
                 await bot.send_media_group(
@@ -278,7 +267,7 @@ async def process_instruction(callback_query: types.CallbackQuery):
                     "Извините, не удалось загрузить изображения инструкции.",
                     parse_mode=None
                 )
-    
+
     await callback_query.answer()
 
 @dp.message()
@@ -294,42 +283,46 @@ async def handle_message(message: Message, state: FSMContext):
 
     if message.document and message.document.mime_type == 'application/pdf':
         await message.reply("📄 Анализирую ваше резюме... Пожалуйста, подождите.", parse_mode=None)
-        
+
         file_id = message.document.file_id
-        file = await bot.get_file(file_id)
-        local_file_path = f"temp_{message.from_user.id}.pdf"
+        try:
+            # Получаем информацию о файле
+            file = await bot.get_file(file_id)
+            local_file_path = f"temp_{message.from_user.id}.pdf"
 
-        await bot.download_file(file.file_path, local_file_path)
-        text = await extract_text_from_pdf(local_file_path)
-        
-        if text:
-            # Используем модель по умолчанию, например "GigaChat-2"
-            selected_model = "GigaChat-2"
-            analysis = await analyze_resume(text, selected_model, message.from_user.id)
-            analysis = remove_markdown(analysis)
+            # Пытаемся загрузить файл
+            try:
+                await bot.download_file(file.file_path, local_file_path)
+            except Exception as e:
+                await message.reply("❌ Ошибка при загрузке файла. Попробуйте снова.", parse_mode=None)
+                print(f"Ошибка при загрузке файла: {e}")
+                return
 
-            await message.reply("📊 Результаты анализа:", parse_mode=None)
-            max_length = 4096
-            for i in range(0, len(analysis), max_length):
-                chunk = analysis[i:i+max_length]
-                await message.reply(chunk, parse_mode=None)
+            # Извлекаем текст из PDF
+            text = await extract_text_from_pdf(local_file_path)
 
-            #edited_resume = await edit_resume(text, selected_model, message.from_user.id)
-            #edited_resume = remove_markdown(edited_resume)
+            if text:
+                # Используем модель "gpt-4o-mini"
+                selected_model = "gpt-4o-mini"
+                analysis = await analyze_resume(text, selected_model, message.from_user.id)
+                analysis = remove_markdown(analysis)
 
-            #await message.reply("📝 Отредактированное резюме:", parse_mode=None)
-            #for i in range(0, len(edited_resume), max_length):
-                #chunk = edited_resume[i:i+max_length]
-                #await message.reply(chunk, parse_mode=None)
+                await message.reply("📊 Результаты анализа:", parse_mode=None)
+                max_length = 4096
+                for i in range(0, len(analysis), max_length):
+                    chunk = analysis[i:i+max_length]
+                    await message.reply(chunk, parse_mode=None)
 
-            await message.reply("Для повторного анализа отправьте файл снова.", parse_mode=None)
-            analysis_count[message.from_user.id] = analysis_count.get(message.from_user.id, 0) + 1
-        else:
-            await message.reply(
-                "❌ Не удалось извлечь текст из PDF. Убедитесь, что PDF содержит текстовый слой.",
-                parse_mode=None
-            )
-        os.remove(local_file_path)
+                analysis_count[message.from_user.id] = analysis_count.get(message.from_user.id, 0) + 1
+            else:
+                await message.reply(
+                    "❌ Не удалось извлечь текст из PDF. Убедитесь, что PDF содержит текстовый слой.",
+                    parse_mode=None
+                )
+            os.remove(local_file_path)
+        except Exception as e:
+            await message.reply("❌ Произошла ошибка при обработке файла. Попробуйте снова.", parse_mode=None)
+            print(f"Ошибка при обработке файла: {e}")
     elif message.document:
         await message.reply("📎 Пожалуйста, отправьте резюме в формате PDF.", parse_mode=None)
 
@@ -355,21 +348,25 @@ async def analyze_resume(text: str, model: str, user_id: int) -> str:
 
 {get_env_var('ANALYZE_INSTRUCTIONS')}
 
+Текст резюме:
 {text}
 """
     try:
-        if model in ["GigaChat-2"]:
-            # Вызываем метод chat из GigaChat; так как метод синхронный, можно выполнить его в executor:
-            loop = asyncio.get_running_loop()
-            response = await loop.run_in_executor(None, giga.chat, prompt)
-            return response.choices[0].message.content
+        # Убедимся, что модель корректно проверяется
+        if model == "gpt-4o-mini":
+            # Используем OpenAI ChatCompletion для вызова модели
+            response = await ChatCompletion.acreate(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}]
+            )
+            return response.choices[0].message["content"]
         else:
-            return "Неизвестная модель."
+            # Если модель не совпадает, возвращаем сообщение об ошибке
+            return f"Неизвестная модель: {model}"
     except Exception as e:
         return f"Ошибка при анализе резюме: {e}"
 
-# Аналогично изменим функцию edit_resume:
-#async def edit_resume(text: str, model: str, user_id: int) -> str:
+async def edit_resume(text: str, model: str, user_id: int) -> str:
     user_prompt = user_prompts.get(user_id, DEFAULT_PROMPT)
     instruction = ("Пожалуйста, отправь ответ в виде простого текста без markdown форматирования "
                    "(без #, *, -, и т.д.).")
@@ -383,12 +380,17 @@ async def analyze_resume(text: str, model: str, user_id: int) -> str:
 {text}
 """
     try:
-        if model in ["GigaChat-2"]:
-            loop = asyncio.get_running_loop()
-            response = await loop.run_in_executor(None, giga.chat, prompt)
-            return response.choices[0].message.content
+        # Убедимся, что модель корректно проверяется
+        if model == "gpt-4o-mini":
+            # Используем OpenAI ChatCompletion для вызова модели
+            response = await ChatCompletion.acreate(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}]
+            )
+            return response.choices[0].message["content"]
         else:
-            return "Неизвестная модель."
+            # Если модель не совпадает, возвращаем сообщение об ошибке
+            return f"Неизвестная модель: {model}"
     except Exception as e:
         return f"Ошибка при редактировании резюме: {e}"
 
