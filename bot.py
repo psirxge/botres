@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from config import MODELS, DEFAULT_PROMPT, user_prompts
 import re
 from openai import ChatCompletion  # Импортируем OpenAI SDK
-import openai
+import openai # 0.27.8
 
 logging.basicConfig(level=logging.INFO)
 
@@ -374,25 +374,25 @@ async def edit_resume(text: str, model: str, user_id: int) -> str:
 
 {instruction}
 
-{get_env_var('EDIT_INSTRUCTIONS')}
+#{get_env_var('EDIT_INSTRUCTIONS')}
 
 Текст резюме:
-{text}
+#{text}
 """
-    try:
+#    try:
         # Убедимся, что модель корректно проверяется
-        if model == "gpt-4o-mini":
+        #if model == "gpt-4o-mini":
             # Используем OpenAI ChatCompletion для вызова модели
-            response = await ChatCompletion.acreate(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": prompt}]
-            )
-            return response.choices[0].message["content"]
-        else:
+            #response = await ChatCompletion.acreate(
+                #model="gpt-4o-mini",
+                #messages=[{"role": "user", "content": prompt}]
+            #)
+            #return response.choices[0].message["content"]
+        #else:
             # Если модель не совпадает, возвращаем сообщение об ошибке
-            return f"Неизвестная модель: {model}"
-    except Exception as e:
-        return f"Ошибка при редактировании резюме: {e}"
+            #return f"Неизвестная модель: {model}"
+#    except Exception as e:
+        #return f"Ошибка при редактировании резюме: {e}"
 
 async def main():
     await dp.start_polling(bot)
